@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JS Splitter for Gemini</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Fira+Code:wght@400;500&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+        }
+        
+        .code-font {
+            font-family: 'Fira Code', monospace;
+        }
+
+        .copy-feedback {
+            animation: fadeInOut 2s forwards;
+        }
+
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translateY(10px); }
+            15% { opacity: 1; transform: translateY(0); }
+            85% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-10px); }
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="max-w-5xl mx-auto">
+        <!-- Header -->
+        <header class="mb-8 text-center">
+            <h1 class="text-3xl font-bold text-slate-800 mb-2">JS Code Splitter for Gemini</h1>
+            <p class="text-slate-600">Paste your JavaScript file to split it into optimized parts (max 500 lines / 15,000 chars).</p>
+        </header>
+
+        <!-- Input Area -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-8">
+            <div class="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                <span class="font-semibold text-slate-700">Source Code</span>
+                <button onclick="processCode()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors shadow-sm">
+                    Split Code
+                </button>
+            </div>
+            <textarea id="rawInput" 
+                class="w-full h-64 p-4 code-font text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 resize-y"
+                placeholder="Paste your JavaScript code here..."></textarea>
+            <div id="stats" class="p-3 bg-slate-50 text-xs text-slate-500 border-t border-slate-200 flex gap-4">
+                <span>Lines: <b id="lineCount">0</b></span>
+                <span>Characters: <b id="charCount">0</b></span>
+            </div>
+        </div>
+
+        <!-- Output Area -->
+        <div id="outputContainer" class="space-y-6">
+            <!-- Segments will appear here -->
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toastContainer" class="fixed bottom-8 right-8 pointer-events-none"></div>
+
+    <script>
+        const rawInput = document.getElementById('rawInput');
+        const lineCountDisplay = document.getElementById('lineCount');
+        const charCountDisplay = document.getElementById('charCount');
+
+        // Input monitoring
+        rawInput.addEventListener('input', () => {
+            const text = rawInput.value;
+            const lines = text ? text.split('\n').length : 0;
+            lineCountDisplay.innerText = lines.toLocaleString();
+            charCountDisplay.innerText = text.length.toLocaleString();
+        });
+
+        function processCode() {
+            const text = rawInput.value.trim();
+            if (!text) return;
+
+            const lines = text.split('\n');
+            const chunks = [];
+            
+            const MAX_LINES = 500;
+            const MAX_CHARS = 15000;
+
+            let currentChunkLines = [];
+            let currentChunkChars = 0;
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const lineLength = line.length + 1; // +1 for newline
+
+                // Check if adding this line violates limits
+                if (currentChunkLines.length >= MAX_LINES || (currentChunkChars + lineLength) > MAX_CHARS) {
+                    // Save current chunk and start a new one
+                    if (currentChunkLines.length > 0) {
+                        chunks.push(currentChunkLines.join('\n'));
+                    }
+                    currentChunkLines = [line];
+                    currentChunkChars = lineLength;
+                } else {
+                    currentChunkLines.push(line);
+                    currentChunkChars += lineLength;
+                }
+            }
+
+            // Add the last remaining chunk
+            if (currentChunkLines.length > 0) {
+                chunks.push(currentChunkLines.join('\n'));
+            }
+
+            renderChunks(chunks);
+        }
+
+        function renderChunks(chunks) {
+            const container = document.getElementById('outputContainer');
+            container.innerHTML = '';
+
+            if (chunks.length === 0) return;
+
+            chunks.forEach((content, index) => {
+                const partNum = index + 1;
+                const totalParts = chunks.length;
+                
+                const section = document.createElement('div');
+                section.className = "bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden animate-in fade-in duration-500";
+                
+                // Specific header for Gemini to help with context
+                const headerText = `// PART ${partNum} OF ${totalParts} of the JavaScript file\n`;
+                const fullContent = headerText + content;
+
+                section.innerHTML = `
+                    <div class="p-4 bg-slate-800 text-white flex justify-between items-center">
+                        <div>
+                            <span class="text-blue-400 font-bold mr-2">PART ${partNum}</span>
+                            <span class="text-slate-400 text-xs">(${content.split('\n').length} lines, ${content.length} characters)</span>
+                        </div>
+                        <button onclick="copyToClipboard(this, ${index})" 
+                            class="bg-blue-500 hover:bg-blue-400 text-white px-4 py-1.5 rounded text-sm font-semibold transition-all active:scale-95">
+                            Select & Copy
+                        </button>
+                    </div>
+                    <textarea id="chunk-${index}" readonly
+                        class="w-full h-48 p-4 bg-slate-900 text-blue-100 code-font text-xs focus:outline-none resize-none">${fullContent}</textarea>
+                `;
+                container.appendChild(section);
+            });
+            
+            // Auto-scroll to the first result
+            container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function copyToClipboard(button, index) {
+            const textArea = document.getElementById(`chunk-${index}`);
+            textArea.select();
+            
+            try {
+                // Using execCommand for iFrame compatibility as required
+                document.execCommand('copy');
+                showToast("Code copied to clipboard!");
+                
+                // Visual feedback on the button
+                const originalText = button.innerText;
+                button.innerText = "Copied!";
+                button.classList.replace('bg-blue-500', 'bg-green-500');
+                
+                setTimeout(() => {
+                    button.innerText = originalText;
+                    button.classList.replace('bg-green-500', 'bg-blue-500');
+                }, 2000);
+            } catch (err) {
+                console.error('Copy error:', err);
+                showToast("Failed to copy.");
+            }
+        }
+
+        function showToast(message) {
+            const toast = document.createElement('div');
+            toast.className = "copy-feedback bg-slate-800 text-white px-6 py-3 rounded-full shadow-lg text-sm font-medium mb-4 border border-slate-700";
+            toast.innerText = message;
+            
+            const container = document.getElementById('toastContainer');
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.remove();
+            }, 2100);
+        }
+    </script>
+</body>
+</html>

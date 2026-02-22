@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Container Launcher Pro - Tampermonkey Edition</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body {
+            background-color: #0f111a;
+            background-image: radial-gradient(circle at top right, #1a1c2e, #0f111a);
+        }
+        input[type='number']::-webkit-inner-spin-button,
+        input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type='number'] { -moz-appearance: textfield; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useCallback, useRef } = React;
+
+        const CONFIG_STORAGE_KEY = 'container_launcher_pro_configs_v6';
+        const STATE_STORAGE_KEY = 'container_launcher_pro_states_v6';
+        const URL_KEY = 'container_launcher_pro_url_v6';
+        const AUTOCLOSE_KEY = 'container_launcher_pro_autoclose_v6';
+
+        const darkenColor = (hex, percent) => {
+            if (!hex) return '#000000';
+            let [r, g, b] = hex.match(/\w\w/g).map(x => parseInt(x, 16));
+            r = Math.floor(r * (1 - percent / 100));
+            g = Math.floor(g * (1 - percent / 100));
+            b = Math.floor(b * (1 - percent / 100));
+            return "#" + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('');
+        };
+        
+        const formatTimeLeft = (seconds) => {
+            if (seconds === null) return '--';
+            if (seconds <= 0) return '0s';
+            if (seconds < 60) return `${seconds}s`;
+            if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            return `${h}h ${m}m`;
+        };
+
+        const ContainerCard = ({ config, state, onUpdate, onLaunch, isGloballyPaused }) => {
+            const [timeLeft, setTimeLeft] = useState(null);
+            const [countdownCompleted, setCountdownCompleted] = useState(false);
+            const [lastLaunchTimestamp, setLastLaunchTimestamp] = useState(0);
+            const [isHovered, setIsHovered] = useState(false);
+            
+            const timerRef = useRef(null);
+            const targetTimeRef = useRef(null);
+
+            useEffect(() => {
+                if (timerRef.current) clearInterval(timerRef.current);
+
+                if (isGloballyPaused) {
+                    setTimeLeft(null);
+                    return;
+                }
+
+                let nextLaunchTimestamp = Infinity;
+                let isCountdownLaunch = false;
+
+                if (state.countdown.enabled && !countdownCompleted) {
+                    nextLaunchTimestamp = Date.now() + state.countdown.seconds * 1000;
+                    isCountdownLaunch = true;
+                }
+
+                state.schedule.forEach(sched => {
+                    if (sched.enabled) {
+                        const [hours, minutes] = sched.time.split(':').map(Number);
+                        const now = new Date();
+                        let scheduledDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0);
+                        if (scheduledDate < now) {
+                            scheduledDate.setDate(scheduledDate.getDate() + 1);
+                        }
+                        if (scheduledDate.getTime() < nextLaunchTimestamp) {
+                            nextLaunchTimestamp = scheduledDate.getTime();
+                            isCountdownLaunch = false;
+                        }
+                    }
+                });
+
+                targetTimeRef.current = nextLaunchTimestamp;
+
+                if (nextLaunchTimestamp !== Infinity) {
+                    const updateDisplay = () => {
+                        const remaining = Math.ceil((targetTimeRef.current - Date.now()) / 1000);
+                        
+                        if (remaining <= 0) {
+                            setTimeLeft(0);
+                            if (Date.now() - lastLaunchTimestamp > 100000) {
+                                onLaunch();
+                                setLastLaunchTimestamp(Date.now());
+                                if (isCountdownLaunch) {
+                                    setCountdownCompleted(true);
+                                }
+                            }
+                            if (timerRef.current) clearInterval(timerRef.current);
+                        } else {
+                            setTimeLeft(remaining);
+                        }
+                    };
+                    
+                    updateDisplay();
+                    timerRef.current = setInterval(updateDisplay, 1000);
+                } else {
+                    setTimeLeft(null);
+                }
+
+                return () => {
+                    if (timerRef.current) clearInterval(timerRef.current);
+                };
+
+            }, [state, countdownCompleted, isGloballyPaused, onLaunch]); // Removed lastLaunchTimestamp from deps to avoid re-trigger loop
+
+            const handleModeChange = (mode, index, enabled) => {
+                const newState = JSON.parse(JSON.stringify(state));
+                if (mode === 'countdown') newState.countdown.enabled = enabled;
+                else newState.schedule[index].enabled = enabled;
+                onUpdate(config.id, newState);
+            };
+            
+            const handleTimeKeyDown = (e, index) => {
+                e.preventDefault();
+                const [hours, minutes] = state.schedule[index].time.split(':').map(Number);
+                let newHours = hours, newMinutes = minutes;
+                switch(e.key) {
+                    case 'w': case 'PageUp': newHours = (hours + 1) % 24; break;
+                    case 's': case 'PageDown': newHours = (hours + 23) % 24; break;
+                    case 'e': case 'ArrowUp': newMinutes = (minutes + 1) % 60; break;
+                    case 'd': case 'ArrowDown': newMinutes = (minutes + 59) % 60; break;
+                    default: return;
+                }
+                const newTime = `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}`;
+                const newState = JSON.parse(JSON.stringify(state));
+                newState.schedule[index].time = newTime;
+                onUpdate(config.id, newState);
+            };
+
+            const buttonStyle = { backgroundColor: isHovered ? darkenColor(config.color, 15) : config.color, transition: 'background-color 0.2s ease-in-out' };
+
+            return (
+                <div className={`bg-[#1a1c2e] border ${countdownCompleted ? 'border-emerald-500/30' : 'border-slate-800'} rounded-xl p-3 flex items-center justify-between gap-4 shadow-xl transition-all hover:border-indigo-500/30`}>
+                    <button onClick={onLaunch} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)} style={buttonStyle} className={`px-5 py-2.5 rounded-lg font-bold text-white text-xs uppercase tracking-widest transition-transform active:scale-95 min-w-[140px] shadow-lg shadow-black/20 flex items-center justify-center gap-2`}>
+                        {countdownCompleted && <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
+                        {config.name}
+                    </button>
+                    <div className="flex-grow flex items-center gap-4 bg-black/20 px-4 py-2 rounded-lg border border-white/5">
+                        <div className="flex items-center gap-4 flex-grow">
+                            <div className="flex items-center gap-2">
+                                <input type="checkbox" checked={state.countdown.enabled} onChange={(e) => handleModeChange('countdown', null, e.target.checked)} className="w-4 h-4 rounded border-slate-700 text-indigo-500 bg-slate-900 focus:ring-0" disabled={countdownCompleted} />
+                                <span className={`text-[10px] font-bold ${countdownCompleted ? 'text-emerald-500' : 'text-slate-500'} transition-colors uppercase`}>Timer</span>
+                                <input type="number" value={state.countdown.seconds} onChange={(e) => onUpdate(config.id, {...state, countdown: {...state.countdown, seconds: Math.max(1, parseInt(e.target.value) || 1)}})} min="1" disabled={countdownCompleted} className="w-14 bg-slate-900 border border-slate-700 rounded px-1 py-1 text-xs text-center text-indigo-400 focus:outline-none focus:border-indigo-500 disabled:opacity-50" />
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-bold text-slate-500 uppercase">Schedule</span>
+                                {state.schedule.map((sched, index) => (
+                                    <div key={index} className="flex items-center gap-2">
+                                        <input type="checkbox" checked={sched.enabled} onChange={(e) => handleModeChange('schedule', index, e.target.checked)} className="w-4 h-4 rounded border-slate-700 text-indigo-500 bg-slate-900 focus:ring-0" />
+                                        <input type="text" value={sched.time} placeholder="HH:MM" onKeyDown={(e) => handleTimeKeyDown(e, index)} onChange={(e) => { const newState = JSON.parse(JSON.stringify(state)); newState.schedule[index].time = e.target.value; onUpdate(config.id, newState); }} className="w-16 bg-slate-900 border border-slate-700 rounded px-1 py-1 text-xs text-center text-indigo-400 focus:outline-none focus:border-indigo-500 font-mono" />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="min-w-[70px] text-right">
+                            <span className={`font-mono font-bold text-2xl text-indigo-400`}>{formatTimeLeft(timeLeft)}</span>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ManagementModal = ({ initialConfigs, onSave, onClose }) => {
+            const [editableConfigs, setEditableConfigs] = useState(initialConfigs);
+            const handleUpdate = (index, field, value) => setEditableConfigs(prev => prev.map((c, i) => i === index ? { ...c, [field]: value } : c));
+            const handleAdd = () => setEditableConfigs(prev => [...prev, { id: 'config_' + Date.now(), name: 'New Container', color: '#5c5f66' }]);
+            const handleDelete = (index) => setEditableConfigs(prev => prev.filter((_, i) => i !== index));
+
+            return (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-[#1a1c2e] border border-slate-800 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col">
+                        <header className="p-4 border-b border-slate-800 flex justify-between items-center"><h2 className="text-lg font-bold text-white">Manage Containers</h2><button onClick={onClose} className="text-slate-500 hover:text-white">&times;</button></header>
+                        <main className="p-6 space-y-4 overflow-y-auto">
+                            {editableConfigs.map((config, index) => (
+                                <div key={config.id} className="flex items-center gap-3 bg-black/20 p-3 rounded-lg border border-slate-700/50">
+                                    <input type="color" value={config.color} onChange={(e) => handleUpdate(index, 'color', e.target.value)} className="w-10 h-10 rounded-md bg-transparent border-none cursor-pointer" />
+                                    <input type="text" value={config.name} onChange={(e) => handleUpdate(index, 'name', e.target.value)} placeholder="Container Name" className="flex-grow bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
+                                    <button onClick={() => handleDelete(index)} className="text-slate-500 hover:text-red-500 p-2 rounded-full transition-colors"><svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clipRule="evenodd" /></svg></button>
+                                </div>
+                            ))}
+                             <button onClick={handleAdd} className="w-full mt-2 text-indigo-400 border-2 border-dashed border-indigo-400/30 py-2 rounded-lg hover:bg-indigo-400/10 transition-colors text-sm font-bold">+ Add New Container</button>
+                        </main>
+                        <footer className="p-4 border-t border-slate-800 flex justify-end gap-3 bg-black/10">
+                            <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-bold text-slate-300 bg-slate-700 hover:bg-slate-600 transition-colors">Cancel</button>
+                            <button onClick={() => onSave(editableConfigs)} className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-500 transition-colors">Save Changes</button>
+                        </footer>
+                    </div>
+                </div>
+            );
+        };
+        
+        const AutoCloseBanner = ({ countdown, onCancel }) => {
+            if (countdown === null) return null;
+            return (
+                <div className="fixed top-0 left-0 right-0 bg-red-900/80 backdrop-blur-sm border-b-2 border-red-500 p-4 flex items-center justify-center gap-6 z-50">
+                    <p className="text-white font-bold">This tab will close in <span className="font-mono text-xl">{countdown}</span> seconds due to auto-close schedule.</p>
+                    <button onClick={onCancel} className="bg-slate-200 text-slate-900 px-4 py-1 rounded-lg font-bold text-sm hover:bg-white">Cancel Auto-Close</button>
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [configs, setConfigs] = useState([]);
+            const [containerStates, setContainerStates] = useState({});
+            const [globalUrl, setGlobalUrl] = useState('');
+            const [autoCloseConfig, setAutoCloseConfig] = useState({ enabled: false, startTime: '22:00', endTime: '06:00' });
+            const [closeCountdown, setCloseCountdown] = useState(null);
+            const [initialized, setInitialized] = useState(false);
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [isGloballyPaused, setIsGloballyPaused] = useState(false);
+            const [importUrl, setImportUrl] = useState('');
+            const fileInputRef = useRef(null);
+
+            const defaultState = () => ({
+                countdown: { enabled: false, seconds: 5 },
+                schedule: [ { enabled: false, time: '09:00' }, { enabled: false, time: '17:00' }, { enabled: false, time: '21:00' } ]
+            });
+
+            useEffect(() => {
+                const savedUrl = localStorage.getItem(URL_KEY) || 'https://www.google.com';
+                const savedConfigsRaw = localStorage.getItem(CONFIG_STORAGE_KEY);
+                const savedAutoClose = JSON.parse(localStorage.getItem(AUTOCLOSE_KEY) || JSON.stringify(autoCloseConfig));
+                let loadedConfigs = savedConfigsRaw ? JSON.parse(savedConfigsRaw) : [ { id: 'personal_1', name: 'Personal', color: '#3b82f6' }, { id: 'work_1', name: 'Work', color: '#f97316' } ];
+                setConfigs(loadedConfigs);
+                setAutoCloseConfig(savedAutoClose);
+                const savedStates = JSON.parse(localStorage.getItem(STATE_STORAGE_KEY) || '{}');
+                const initialStates = {};
+                loadedConfigs.forEach(c => { initialStates[c.id] = { ...defaultState(), ...savedStates[c.id] }; });
+                setContainerStates(initialStates);
+                setGlobalUrl(savedUrl);
+                setInitialized(true);
+            }, []);
+
+            useEffect(() => {
+                if (initialized) {
+                    localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(configs));
+                    localStorage.setItem(STATE_STORAGE_KEY, JSON.stringify(containerStates));
+                    localStorage.setItem(URL_KEY, globalUrl);
+                    localStorage.setItem(AUTOCLOSE_KEY, JSON.stringify(autoCloseConfig));
+                }
+            }, [configs, containerStates, globalUrl, autoCloseConfig, initialized]);
+            
+            useEffect(() => {
+                if (!autoCloseConfig.enabled || isGloballyPaused) {
+                    if (closeCountdown !== null) setCloseCountdown(null);
+                    return;
+                }
+                const checkTime = () => {
+                    const now = new Date();
+                    const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+                    const { startTime, endTime } = autoCloseConfig;
+                    let isInRange = (startTime > endTime) ? (currentTime >= startTime || currentTime < endTime) : (currentTime >= startTime && currentTime < endTime);
+                    if (isInRange && closeCountdown === null) setCloseCountdown(10);
+                    else if (!isInRange && closeCountdown !== null) setCloseCountdown(null);
+                };
+                const interval = setInterval(checkTime, 5000);
+                checkTime();
+                return () => clearInterval(interval);
+            }, [autoCloseConfig, isGloballyPaused, closeCountdown]);
+
+            // --- LOGICA DI CHIUSURA MODIFICATA PER TAMPERMONKEY ---
+            useEffect(() => {
+                if (closeCountdown > 0) {
+                    const timer = setTimeout(() => setCloseCountdown(closeCountdown - 1), 1000);
+                    return () => clearTimeout(timer);
+                } else if (closeCountdown === 0) {
+                    // Invece di window.close(), cambiamo il titolo per triggerare Tampermonkey
+                    document.title = "CLOSE_NOW1";
+                }
+            }, [closeCountdown]);
+
+            const handleLaunch = useCallback((name) => {
+                const targetUrl = globalUrl.trim() || 'https://www.google.com';
+                const firefoxUrl = `ext+container:name=${encodeURIComponent(name)}&url=${encodeURIComponent(targetUrl)}`;
+                const link = document.createElement('a');
+                link.href = firefoxUrl;
+                link.target = '_blank';
+                link.click();
+            }, [globalUrl]);
+            
+            const handleSaveConfigs = (newConfigs) => {
+                const newStates = {};
+                newConfigs.forEach(config => { newStates[config.id] = containerStates[config.id] || defaultState(); });
+                setContainerStates(newStates);
+                setConfigs(newConfigs);
+                setIsModalOpen(false);
+            };
+
+            const applyImportedData = (data) => {
+                if (data && data.globalUrl && data.configs && data.containerStates && data.autoCloseConfig) {
+                    setGlobalUrl(data.globalUrl); setConfigs(data.configs); setContainerStates(data.containerStates); setAutoCloseConfig(data.autoCloseConfig);
+                    alert('Configuration imported successfully!');
+                } else { alert('Error: The JSON file does not have the correct structure or is outdated.'); }
+            };
+
+            const handleExport = () => {
+                const exportData = { globalUrl, configs, containerStates, autoCloseConfig };
+                const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(exportData, null, 2))}`;
+                const link = document.createElement('a');
+                link.href = jsonString;
+                link.download = 'container-pro-backup.json';
+                link.click();
+            };
+
+            const handleFileImport = (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try { const data = JSON.parse(e.target.result); applyImportedData(data); } 
+                    catch (error) { alert('Error: Could not read the file. Make sure it is valid JSON.'); }
+                };
+                reader.readAsText(file);
+                event.target.value = null;
+            };
+
+            const handleImportFromUrl = async () => {
+                if (!importUrl.trim()) return alert('Please enter a URL.');
+                try {
+                    const response = await fetch(importUrl);
+                    if (!response.ok) throw new Error(`Network response was not ok: ${response.statusText}`);
+                    const data = await response.json();
+                    applyImportedData(data);
+                    setImportUrl('');
+                } catch (error) { alert(`Import failed: ${error.message}. Check the URL and your connection.`); }
+            };
+            
+            const handleAutoCloseTimeKeyDown = (e, field) => {
+                e.preventDefault();
+                const [hours, minutes] = autoCloseConfig[field].split(':').map(Number);
+                let newHours = hours, newMinutes = minutes;
+                switch(e.key) {
+                    case 'w': case 'PageUp': newHours = (hours + 1) % 24; break;
+                    case 's': case 'PageDown': newHours = (hours + 23) % 24; break;
+                    case 'e': case 'ArrowUp': newMinutes = (minutes + 1) % 60; break;
+                    case 'd': case 'ArrowDown': newMinutes = (minutes + 59) % 60; break;
+                    default: return;
+                }
+                const newTime = `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}`;
+                setAutoCloseConfig({...autoCloseConfig, [field]: newTime});
+            };
+
+            if (!initialized) return null;
+
+            return (
+                <div className="min-h-screen py-6 px-4 flex flex-col items-center">
+                    <AutoCloseBanner countdown={closeCountdown} onCancel={() => setAutoCloseConfig({...autoCloseConfig, enabled: false})} />
+                    {isModalOpen && <ManagementModal initialConfigs={configs} onSave={handleSaveConfigs} onClose={() => setIsModalOpen(false)} />}
+                    <header className="text-center mb-6">
+                        <h1 className="text-3xl font-black tracking-tighter text-white mb-2">CONTAINER <span className="text-indigo-500 italic">PRO</span></h1>
+                        <div className="h-1 w-12 bg-indigo-500 mx-auto rounded-full opacity-50"></div>
+                    </header>
+
+                    <main className="w-full max-w-5xl space-y-4">
+                        <section className="bg-[#1a1c2e] border border-indigo-500/20 rounded-2xl p-4 shadow-2xl relative overflow-hidden">
+                            <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
+                            <div className="flex flex-col gap-3">
+                                <h2 className="text-[11px] font-black text-indigo-400 uppercase tracking-[0.2em]">Global Destination</h2>
+                                <input type="url" value={globalUrl} onChange={(e) => setGlobalUrl(e.target.value)} placeholder="E.g., https://www.github.com" className="w-full bg-black/40 border border-slate-700 rounded-xl px-4 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all font-mono text-sm" />
+                            </div>
+                        </section>
+                        
+                        <section className="bg-[#1a1c2e] border border-slate-800 rounded-2xl p-4 space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-3">
+                                    <h3 className="text-center text-xs font-bold text-slate-400 uppercase">Controls</h3>
+                                    <div className="flex flex-wrap items-center justify-center gap-3">
+                                        <button onClick={() => setIsModalOpen(true)} className="bg-slate-800/80 border border-slate-700 text-slate-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg hover:bg-slate-700/80 hover:border-slate-600 transition-all">Manage</button>
+                                        <button onClick={() => setIsGloballyPaused(!isGloballyPaused)} className={`text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg border transition-all ${isGloballyPaused ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20' : 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20'}`}>
+                                            {isGloballyPaused ? '▶ Resume Timers' : '❚❚ Pause Timers'}
+                                        </button>
+                                    </div>
+                                    <div className="flex flex-wrap items-center justify-center gap-3 text-xs">
+                                        <button onClick={() => fileInputRef.current.click()} className="text-slate-400 hover:text-white transition-colors">Import from File</button>
+                                        <input type="file" ref={fileInputRef} onChange={handleFileImport} accept=".json" className="hidden" />
+                                        <span className="text-slate-600">|</span>
+                                        <button onClick={handleExport} className="text-slate-400 hover:text-white transition-colors">Export Config</button>
+                                    </div>
+                                </div>
+                                <div className="space-y-3">
+                                    <h3 className="text-center text-xs font-bold text-slate-400 uppercase">Auto-Close</h3>
+                                    <div className="flex items-center justify-center gap-2">
+                                        <input type="checkbox" id="autoCloseCheck" checked={autoCloseConfig.enabled} onChange={(e) => setAutoCloseConfig({...autoCloseConfig, enabled: e.target.checked})} className="w-4 h-4 rounded border-slate-700 text-red-500 bg-slate-900 focus:ring-0" />
+                                        <label htmlFor="autoCloseCheck" className="text-sm text-slate-300">Enable</label>
+                                    </div>
+                                    <div className="flex items-center justify-center gap-2 text-sm">
+                                        <span className="text-slate-500">From:</span>
+                                        <input type="text" value={autoCloseConfig.startTime} onKeyDown={(e) => handleAutoCloseTimeKeyDown(e, 'startTime')} onChange={(e) => setAutoCloseConfig({...autoCloseConfig, startTime: e.target.value})} className="w-20 bg-slate-900/70 border border-slate-700 rounded-lg px-2 py-1 text-slate-300 font-mono" />
+                                        <span className="text-slate-500">To:</span>
+                                        <input type="text" value={autoCloseConfig.endTime} onKeyDown={(e) => handleAutoCloseTimeKeyDown(e, 'endTime')} onChange={(e) => setAutoCloseConfig({...autoCloseConfig, endTime: e.target.value})} className="w-20 bg-slate-900/70 border border-slate-700 rounded-lg px-2 py-1 text-slate-300 font-mono" />
+                                    </div>
+                                </div>
+                            </div>
+                             <div className="border-t border-slate-800 my-2"></div>
+                             <div className="flex flex-col sm:flex-row gap-3">
+                                <input type="url" value={importUrl} onChange={(e) => setImportUrl(e.target.value)} placeholder="Import from URL..." className="flex-grow bg-slate-900/70 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-indigo-500" />
+                                <button onClick={handleImportFromUrl} className="bg-indigo-600 text-white text-xs font-bold uppercase px-4 py-2 rounded-lg hover:bg-indigo-500 transition-colors">Load</button>
+                            </div>
+                        </section>
+
+                        <div className="space-y-3">
+                            {configs.map(config => (
+                                <ContainerCard key={config.id} config={config} state={containerStates[config.id]} onLaunch={() => handleLaunch(config.name)} onUpdate={(id, newState) => setContainerStates(prev => ({ ...prev, [id]: newState }))} isGloballyPaused={isGloballyPaused} />
+                            ))}
+                        </div>
+
+                        <footer className="mt-8 text-center">
+                            <button onClick={() => window.location.reload()} className="text-[9px] text-indigo-400 border border-indigo-400/30 px-3 py-1 rounded hover:bg-indigo-400/10 transition-colors uppercase font-bold tracking-tighter">Restart Session (F5)</button>
+                        </footer>
+                    </main>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

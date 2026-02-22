@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Container Launcher Pro - Tampermonkey Edition</title>
+    <title>Container Launcher Pro - Final Edition</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -18,6 +18,15 @@
         input[type='number']::-webkit-inner-spin-button,
         input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         input[type='number'] { -moz-appearance: textfield; }
+        
+        /* Animazione pulsante download */
+        @keyframes pulse-red {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            50% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+        }
+        .animate-pulse-red {
+            animation: pulse-red 2s infinite;
+        }
     </style>
 </head>
 <body>
@@ -30,6 +39,7 @@
         const STATE_STORAGE_KEY = 'container_launcher_pro_states_v6';
         const URL_KEY = 'container_launcher_pro_url_v6';
         const AUTOCLOSE_KEY = 'container_launcher_pro_autoclose_v6';
+        const SCRIPT_URL = "https://github.com/HeroWarsTools/support/raw/refs/heads/main/containerProCloser.user.js";
 
         const darkenColor = (hex, percent) => {
             if (!hex) return '#000000';
@@ -121,7 +131,7 @@
                     if (timerRef.current) clearInterval(timerRef.current);
                 };
 
-            }, [state, countdownCompleted, isGloballyPaused, onLaunch]); // Removed lastLaunchTimestamp from deps to avoid re-trigger loop
+            }, [state, countdownCompleted, isGloballyPaused, onLaunch]);
 
             const handleModeChange = (mode, index, enabled) => {
                 const newState = JSON.parse(JSON.stringify(state));
@@ -229,6 +239,7 @@
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [isGloballyPaused, setIsGloballyPaused] = useState(false);
             const [importUrl, setImportUrl] = useState('');
+            const [scriptDetected, setScriptDetected] = useState(false);
             const fileInputRef = useRef(null);
 
             const defaultState = () => ({
@@ -260,6 +271,16 @@
                 }
             }, [configs, containerStates, globalUrl, autoCloseConfig, initialized]);
             
+            // --- RILEVAMENTO SCRIPT TAMPERMONKEY ---
+            useEffect(() => {
+                const checkScript = setInterval(() => {
+                    if (document.body.hasAttribute('data-cp-closer-active')) {
+                        setScriptDetected(true);
+                    }
+                }, 1000);
+                return () => clearInterval(checkScript);
+            }, []);
+
             useEffect(() => {
                 if (!autoCloseConfig.enabled || isGloballyPaused) {
                     if (closeCountdown !== null) setCloseCountdown(null);
@@ -278,13 +299,11 @@
                 return () => clearInterval(interval);
             }, [autoCloseConfig, isGloballyPaused, closeCountdown]);
 
-            // --- LOGICA DI CHIUSURA MODIFICATA PER TAMPERMONKEY ---
             useEffect(() => {
                 if (closeCountdown > 0) {
                     const timer = setTimeout(() => setCloseCountdown(closeCountdown - 1), 1000);
                     return () => clearTimeout(timer);
                 } else if (closeCountdown === 0) {
-                    // Invece di window.close(), cambiamo il titolo per triggerare Tampermonkey
                     document.title = "CLOSE_NOW1";
                 }
             }, [closeCountdown]);
@@ -396,6 +415,17 @@
                                         <span className="text-slate-600">|</span>
                                         <button onClick={handleExport} className="text-slate-400 hover:text-white transition-colors">Export Config</button>
                                     </div>
+                                    
+                                    {/* PULSANTE DOWNLOAD SCRIPT - APPARE SOLO SE SCRIPT NON RILEVATO */}
+                                    {!scriptDetected && (
+                                        <div className="mt-2 text-center">
+                                            <a href={SCRIPT_URL} target="_blank" className="inline-flex items-center gap-2 bg-red-500/20 border border-red-500 text-red-400 px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-red-500/30 transition-all animate-pulse-red">
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                                                Install Auto-Closer Script
+                                            </a>
+                                            <p className="text-[9px] text-red-500/70 mt-1">Required for auto-close feature</p>
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="space-y-3">
                                     <h3 className="text-center text-xs font-bold text-slate-400 uppercase">Auto-Close</h3>

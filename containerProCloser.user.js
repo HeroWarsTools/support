@@ -1,13 +1,11 @@
 // ==UserScript==
 // @name         Container Pro Auto-Closer
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  Chiude la scheda quando il titolo diventa CLOSE_NOW1 e segnala la presenza alla pagina
 // @author       HeroWarsTools
 // @match        file:///*
-// @match        https://github.com/HeroWarsTools/support/*
-// @match        https://raw.githubusercontent.com/HeroWarsTools/support/*
-// @match        https://htmlpreview.github.io/*
+// @match        https://herowarstools.github.io/support/*
 // @grant        window.close
 // ==/UserScript==
 

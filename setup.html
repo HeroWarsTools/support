@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prepare your Firefox for Multi Accounts</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            /* Sfondo grigio più scuro (raddoppiato il contrasto rispetto al precedente) */
+            background-color: #d1d5db; 
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+        .step-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transition: transform 0.2s;
+        }
+        .step-card:hover {
+            transform: translateY(-2px);
+        }
+        .link-button {
+            display: inline-block;
+            background-color: #2563eb;
+            color: white;
+            padding: 0.6rem 1.2rem;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 600;
+            margin-top: 0.75rem;
+        }
+        .link-button:hover {
+            background-color: #1d4ed8;
+        }
+        code {
+            background-color: #f3f4f6;
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-family: monospace;
+            font-weight: bold;
+            color: #1f2937;
+        }
+        .info-note {
+            font-size: 0.875rem;
+            color: #6b7280;
+            margin-top: 0.5rem;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body class="p-6 md:p-12">
+    <div class="max-w-2xl mx-auto">
+        <h1 class="text-3xl font-extrabold text-gray-900 mb-8 text-center">
+            Prepare your Firefox to open Multi Accounts
+        </h1>
+
+        <!-- Step 1 -->
+        <div class="step-card">
+            <h2 class="text-xl font-bold mb-2 text-gray-800">1. Download Firefox Multi-Account Containers</h2>
+            <p class="text-gray-600 mb-3">Official extension to manage containers and separate your online identities.</p>
+            <a href="https://addons.mozilla.org/en-US/firefox/addon/multi-account-containers/" 
+               target="_blank" 
+               rel="noopener noreferrer" 
+               class="link-button">
+               Get Add-on
+            </a>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="step-card">
+            <h2 class="text-xl font-bold mb-2 text-gray-800">2. Download Open External Links In a Container</h2>
+            <p class="text-gray-600 mb-3">Allows you to force external links to open in specific containers.</p>
+            <a href="https://addons.mozilla.org/en-US/firefox/addon/open-url-in-container/" 
+               target="_blank" 
+               rel="noopener noreferrer" 
+               class="link-button">
+               Get Add-on
+            </a>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="step-card">
+            <h2 class="text-xl font-bold mb-2 text-gray-800">3. Download user.js Configuration</h2>
+            <p class="text-gray-600 mb-3">Open the link below and press <code>Ctrl+S</code> to save the file to your computer.</p>
+            <a href="https://github.com/HeroWarsTools/support/raw/refs/heads/main/user.js" 
+               target="_blank" 
+               rel="noopener noreferrer" 
+               class="link-button">
+               Download user.js
+            </a>
+        </div>
+
+        <!-- Step 4 -->
+        <div class="step-card">
+            <h2 class="text-xl font-bold mb-2 text-gray-800">4. Open Profile Folder</h2>
+            <p class="text-gray-600">
+                Copy and paste <code>about:support</code> into your address bar (or click the button below), then find the <strong>"Profile Folder"</strong> entry and click <strong>"Open Folder"</strong> (or "Show in Finder").
+            </p>
+            <a href="about:support" 
+               target="_blank" 
+               class="link-button bg-gray-800 mt-4">
+               Open about:support
+            </a>
+            <p class="info-note">Note: If the button above doesn't open, please manually type <strong>about:support</strong> in your URL bar.</p>
+        </div>
+
+        <!-- Step 5 -->
+        <div class="step-card border-l-4 border-amber-500 bg-amber-50">
+            <h2 class="text-xl font-bold mb-2 text-gray-800">5. Close Firefox</h2>
+            <p class="text-gray-700">Make sure Firefox is completely closed before proceeding to the next step.</p>
+        </div>
+
+        <!-- Step 6 -->
+        <div class="step-card">
+            <h2 class="text-xl font-bold mb-2 text-gray-800">6. Install user.js</h2>
+            <p class="text-gray-600">Paste the <code>user.js</code> file you downloaded into the Profile Folder you opened in Step 4.</p>
+        </div>
+
+        <!-- Step 7 -->
+        <div class="step-card">
+            <h2 class="text-xl font-bold mb-2 text-gray-800">7. Re-open Firefox</h2>
+            <p class="text-gray-600">Start Firefox again to apply all the new settings.</p>
+        </div>
+
+        <!-- Step 8 -->
+        <div class="step-card bg-emerald-50 border-l-4 border-emerald-500">
+            <h2 class="text-xl font-bold mb-2 text-emerald-900">8. Set Homepage</h2>
+            <p class="text-emerald-800 mb-3">Set the following URL as your homepage in Firefox settings to easily access your support tools:</p>
+            <a href="https://herowarstools.github.io/support/" 
+               target="_blank" 
+               rel="noopener noreferrer" 
+               class="link-button bg-emerald-600 hover:bg-emerald-700">
+               Go to Homepage
+            </a>
+        </div>
+    </div>
+</body>
+</html>

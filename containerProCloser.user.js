@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Container Pro Auto-Closer
 // @namespace    http://tampermonkey.net/
-// @version      1.1
-// @description  Chiude la scheda quando il titolo diventa CLOSE_NOW1
+// @version      1.2
+// @description  Chiude la scheda quando il titolo diventa CLOSE_NOW1 e segnala la presenza alla pagina
 // @author       HeroWarsTools
 // @match        file:///*
 // @match        https://github.com/HeroWarsTools/support/*
@@ -14,15 +14,22 @@
 (function() {
     'use strict';
 
-    // Controllo ogni secondo se il titolo è cambiato
+    // Controllo ogni secondo
     setInterval(function() {
+        // 1. SEGNALO ALLA PAGINA CHE LO SCRIPT È ATTIVO
+        // Questo permette all'HTML di nascondere il tasto di download
+        if (!document.body.hasAttribute('data-cp-closer-active')) {
+            document.body.setAttribute('data-cp-closer-active', 'true');
+        }
+
+        // 2. CONTROLLO IL TITOLO PER LA CHIUSURA
         if (document.title === "CLOSE_NOW1") {
             console.log("Trigger rilevato: CLOSE_NOW1. Tentativo di chiusura...");
             
             // Tenta la chiusura standard
             window.close();
             
-            // Fallback per alcuni browser/configurazioni
+            // Fallback
             self.close();
         }
     }, 1000);

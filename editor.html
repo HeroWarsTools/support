@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <title>Hero Wars Tool - Tab & Text Sync</title>
+    <style>
+        :root { --primary: #3b82f6; --secondary: #10b981; --bg: #f1f5f9; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); padding: 20px; color: #1e293b; }
+        .container { max-width: 1300px; margin: auto; }
+        .main-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
+        h2 { margin-top: 0; font-size: 1.2rem; display: flex; justify-content: space-between; }
+        textarea { width: 100%; height: 450px; margin: 10px 0; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; font-family: 'Consolas', monospace; font-size: 13px; box-sizing: border-box; background: #f8fafc; }
+        .controls { display: flex; gap: 8px; margin-bottom: 10px; }
+        button { cursor: pointer; border: none; padding: 10px 18px; border-radius: 6px; font-weight: 600; transition: all 0.2s; flex: 1; }
+        .btn-json { background: var(--primary); color: white; }
+        .btn-excel { background: var(--secondary); color: white; }
+        button:hover { filter: brightness(1.1); transform: translateY(-1px); }
+        .info-tag { font-size: 0.7rem; background: #e2e8f0; padding: 2px 8px; border-radius: 10px; font-weight: normal; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="main-grid">
+        <div class="card">
+            <h2>JSON <span class="info-tag">Formato File</span></h2>
+            <div class="controls">
+                <input type="file" id="fileJson" accept=".json" style="display:none" onchange="loadFile(this, 'jsonInput')">
+                <button class="btn-json" onclick="document.getElementById('fileJson').click()">Apri File</button>
+                <button class="btn-json" onclick="downloadFile('jsonInput', 'config.json', 'application/json')">Salva File</button>
+            </div>
+            <textarea id="jsonInput" placeholder="Incolla il codice JSON qui..."></textarea>
+            <button class="btn-excel" style="width:100%; font-size: 1.1rem;" onclick="jsonToTabular()">Converti per Excel ➔</button>
+        </div>
+
+        <div class="card">
+            <h2>Excel <span class="info-tag">Copia/Incolla Tabulato</span></h2>
+            <div class="controls">
+                <input type="file" id="fileTxt" accept=".txt,.csv" style="display:none" onchange="loadFile(this, 'tabInput')">
+                <button class="btn-excel" onclick="document.getElementById('fileTxt').click()">Apri Testo</button>
+                <button class="btn-excel" onclick="downloadFile('tabInput', 'config_excel.txt', 'text/plain')">Salva Testo</button>
+            </div>
+            <textarea id="tabInput" placeholder="Incolla qui le righe copiate da Excel..."></textarea>
+            <button class="btn-json" style="width:100%; font-size: 1.1rem;" onclick="tabularToJson()">➔ Converti in JSON</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let globalMeta = {
+        globalUrl: "https://www.hero-wars.com/?hl=it",
+        autoCloseConfig: { enabled: false, startTime: "22:00", endTime: "06:00" }
+    };
+
+    function loadFile(input, targetId) {
+        const file = input.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => document.getElementById(targetId).value = e.target.result;
+        reader.readAsText(file);
+    }
+
+    function downloadFile(sourceId, filename, type) {
+        const text = document.getElementById(sourceId).value;
+        const blob = new Blob([text], { type: type });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+    }
+
+    // DA JSON A TABELLA (TABULATA)
+    function jsonToTabular() {
+        try {
+            const data = JSON.parse(document.getElementById('jsonInput').value);
+            // Salvo i meta-dati per non perderli nella conversione inversa
+            if(data.globalUrl) globalMeta.globalUrl = data.globalUrl;
+            if(data.autoCloseConfig) globalMeta.autoCloseConfig = data.autoCloseConfig;
+
+            let output = "ID\tNome\tColore\tCountdown Attivo\tSecondi\tSched 1\tSched 2\tSched 3\n";
+            
+            data.configs.forEach(conf => {
+                const state = data.containerStates[conf.id] || {};
+                const cd = state.countdown || { enabled: false, seconds: 0 };
+                const sc = state.schedule || [];
+                
+                const s1 = sc[0] ? `${sc[0].time} (${sc[0].enabled ? 'ON' : 'OFF'})` : "";
+                const s2 = sc[1] ? `${sc[1].time} (${sc[1].enabled ? 'ON' : 'OFF'})` : "";
+                const s3 = sc[2] ? `${sc[2].time} (${sc[2].enabled ? 'ON' : 'OFF'})` : "";
+                
+                output += `${conf.id}\t${conf.name}\t${conf.color}\t${cd.enabled ? 'SI' : 'NO'}\t${cd.seconds}\t${s1}\t${s2}\t${s3}\n`;
+            });
+            document.getElementById('tabInput').value = output.trim();
+        } catch (e) { alert("Errore nel JSON: " + e.message); }
+    }
+
+    // DA TABELLA (TABULATA) A JSON
+    function tabularToJson() {
+        try {
+            const rawText = document.getElementById('tabInput').value.trim();
+            const lines = rawText.split("\n");
+            
+            let result = {
+                ...globalMeta,
+                configs: [],
+                containerStates: {}
+            };
+
+            for (let i = 1; i < lines.length; i++) {
+                const cols = lines[i].split("\t");
+                if (cols.length < 3) continue;
+
+                const id = cols[0].trim();
+                result.configs.push({
+                    id: id,
+                    name: cols[1].trim(),
+                    color: cols[2].trim()
+                });
+
+                const schedule = [];
+                // Processa le 3 colonne schedulazione
+                [cols[5], cols[6], cols[7]].forEach(val => {
+                    if (val && val.includes("(")) {
+                        const time = val.split(" ")[0].trim();
+                        const isEnabled = val.includes("ON");
+                        schedule.push({ enabled: isEnabled, time: time });
+                    }
+                });
+
+                result.containerStates[id] = {
+                    countdown: {
+                        enabled: cols[3].trim() === "SI",
+                        seconds: parseInt(cols[4]) || 0
+                    },
+                    schedule: schedule
+                };
+            }
+            document.getElementById('jsonInput').value = JSON.stringify(result, null, 2);
+        } catch (e) { alert("Errore nel formato tabella: assicurati di aver copiato l'intestazione e che le colonne siano separate da tabulazione."); }
+    }
+</script>
+
+</body>
+</html>

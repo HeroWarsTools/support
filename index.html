@@ -63,11 +63,17 @@
         const ContainerCard = ({ config, state, onUpdate, onLaunch, isGloballyPaused }) => {
             const [timeLeft, setTimeLeft] = useState(null);
             const [countdownCompleted, setCountdownCompleted] = useState(false);
-            const [lastLaunchTimestamp, setLastLaunchTimestamp] = useState(0);
+            const [launchCount, setLaunchCount] = useState(0);
             const [isHovered, setIsHovered] = useState(false);
             
             const timerRef = useRef(null);
-            const targetTimeRef = useRef(null);
+            const lastLaunchTimestampRef = useRef(0);
+            const isPausedRef = useRef(isGloballyPaused);
+
+            // Sincronizza istantaneamente il ref con lo stato globale
+            useEffect(() => {
+                isPausedRef.current = isGloballyPaused;
+            }, [isGloballyPaused]);
 
             useEffect(() => {
                 if (timerRef.current) clearInterval(timerRef.current);
@@ -90,9 +96,11 @@
                         const [hours, minutes] = sched.time.split(':').map(Number);
                         const now = new Date();
                         let scheduledDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0);
-                        if (scheduledDate < now) {
+                        
+                        if (scheduledDate.getTime() <= Date.now()) {
                             scheduledDate.setDate(scheduledDate.getDate() + 1);
                         }
+                        
                         if (scheduledDate.getTime() < nextLaunchTimestamp) {
                             nextLaunchTimestamp = scheduledDate.getTime();
                             isCountdownLaunch = false;
@@ -100,22 +108,34 @@
                     }
                 });
 
-                targetTimeRef.current = nextLaunchTimestamp;
-
                 if (nextLaunchTimestamp !== Infinity) {
                     const updateDisplay = () => {
-                        const remaining = Math.ceil((targetTimeRef.current - Date.now()) / 1000);
+                        // Blocco aggressivo istantaneo dentro il timer
+                        if (isPausedRef.current) {
+                            setTimeLeft(null);
+                            return;
+                        }
+
+                        const now = Date.now();
+                        const remaining = Math.ceil((nextLaunchTimestamp - now) / 1000);
                         
                         if (remaining <= 0) {
                             setTimeLeft(0);
-                            if (Date.now() - lastLaunchTimestamp > 100000) {
-                                onLaunch();
-                                setLastLaunchTimestamp(Date.now());
-                                if (isCountdownLaunch) {
-                                    setCountdownCompleted(true);
+                            
+                            if (now - lastLaunchTimestampRef.current > 100000) {
+                                // Doppio controllo prima del lancio effettivo
+                                if (!isPausedRef.current) {
+                                    onLaunch();
+                                    lastLaunchTimestampRef.current = now;
+                                    
+                                    if (isCountdownLaunch) {
+                                        setCountdownCompleted(true);
+                                    } else {
+                                        // Forza il ricalcolo per il giorno successivo senza rompere il timer
+                                        setLaunchCount(prev => prev + 1);
+                                    }
                                 }
                             }
-                            if (timerRef.current) clearInterval(timerRef.current);
                         } else {
                             setTimeLeft(remaining);
                         }
@@ -131,7 +151,7 @@
                     if (timerRef.current) clearInterval(timerRef.current);
                 };
 
-            }, [state, countdownCompleted, isGloballyPaused, onLaunch]);
+            }, [state, countdownCompleted, isGloballyPaused, onLaunch, launchCount]);
 
             const handleModeChange = (mode, index, enabled) => {
                 const newState = JSON.parse(JSON.stringify(state));
@@ -157,11 +177,17 @@
                 onUpdate(config.id, newState);
             };
 
+            const handleManualLaunch = () => {
+                onLaunch();
+                // Aggiorna il cooldown anche se lanciato manualmente per evitare doppi avvii
+                lastLaunchTimestampRef.current = Date.now();
+            };
+
             const buttonStyle = { backgroundColor: isHovered ? darkenColor(config.color, 15) : config.color, transition: 'background-color 0.2s ease-in-out' };
 
             return (
                 <div className={`bg-[#1a1c2e] border ${countdownCompleted ? 'border-emerald-500/30' : 'border-slate-800'} rounded-xl p-3 flex items-center justify-between gap-4 shadow-xl transition-all hover:border-indigo-500/30`}>
-                    <button onClick={onLaunch} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)} style={buttonStyle} className={`px-5 py-2.5 rounded-lg font-bold text-white text-xs uppercase tracking-widest transition-transform active:scale-95 min-w-[140px] shadow-lg shadow-black/20 flex items-center justify-center gap-2`}>
+                    <button onClick={handleManualLaunch} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)} style={buttonStyle} className={`px-5 py-2.5 rounded-lg font-bold text-white text-xs uppercase tracking-widest transition-transform active:scale-95 min-w-[140px] shadow-lg shadow-black/20 flex items-center justify-center gap-2`}>
                         {countdownCompleted && <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
                         {config.name}
                     </button>
@@ -241,6 +267,8 @@
             const [importUrl, setImportUrl] = useState('');
             const [scriptDetected, setScriptDetected] = useState(false);
             const fileInputRef = useRef(null);
+            
+            const isGloballyPausedRef = useRef(false);
 
             const defaultState = () => ({
                 countdown: { enabled: false, seconds: 5 },
@@ -271,7 +299,6 @@
                 }
             }, [configs, containerStates, globalUrl, autoCloseConfig, initialized]);
             
-            // --- RILEVAMENTO SCRIPT TAMPERMONKEY ---
             useEffect(() => {
                 const checkScript = setInterval(() => {
                     if (document.body.hasAttribute('data-cp-closer-active')) {
@@ -308,7 +335,19 @@
                 }
             }, [closeCountdown]);
 
+            // Funzione di blocco aggressivo per il toggle
+            const togglePause = () => {
+                setIsGloballyPaused(prev => {
+                    const newVal = !prev;
+                    isGloballyPausedRef.current = newVal;
+                    return newVal;
+                });
+            };
+
             const handleLaunch = useCallback((name) => {
+                // Blocco assoluto alla radice
+                if (isGloballyPausedRef.current) return;
+                
                 const targetUrl = globalUrl.trim() || 'https://www.google.com';
                 const firefoxUrl = `ext+container:name=${encodeURIComponent(name)}&url=${encodeURIComponent(targetUrl)}`;
                 const link = document.createElement('a');
@@ -405,7 +444,7 @@
                                     <h3 className="text-center text-xs font-bold text-slate-400 uppercase">Controls</h3>
                                     <div className="flex flex-wrap items-center justify-center gap-3">
                                         <button onClick={() => setIsModalOpen(true)} className="bg-slate-800/80 border border-slate-700 text-slate-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg hover:bg-slate-700/80 hover:border-slate-600 transition-all">Manage</button>
-                                        <button onClick={() => setIsGloballyPaused(!isGloballyPaused)} className={`text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg border transition-all ${isGloballyPaused ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20' : 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20'}`}>
+                                        <button onClick={togglePause} className={`text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg border transition-all ${isGloballyPaused ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20' : 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20'}`}>
                                             {isGloballyPaused ? '▶ Resume Timers' : '❚❚ Pause Timers'}
                                         </button>
                                     </div>
@@ -416,7 +455,6 @@
                                         <button onClick={handleExport} className="text-slate-400 hover:text-white transition-colors">Export Config</button>
                                     </div>
                                     
-                                    {/* PULSANTE DOWNLOAD SCRIPT - APPARE SOLO SE SCRIPT NON RILEVATO */}
                                     {!scriptDetected && (
                                         <div className="mt-2 text-center">
                                             <a href={SCRIPT_URL} target="_blank" className="inline-flex items-center gap-2 bg-red-500/20 border border-red-500 text-red-400 px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-red-500/30 transition-all animate-pulse-red">

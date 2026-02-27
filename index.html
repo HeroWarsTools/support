@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Container Launcher Pro - Final Edition</title>
+    <title>Container Launcher Pro - Smart Auto-Resume</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -19,7 +19,6 @@
         input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         input[type='number'] { -moz-appearance: textfield; }
         
-        /* Animazione pulsante download */
         @keyframes pulse-red {
             0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
             50% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
@@ -60,20 +59,15 @@
             return `${h}h ${m}m`;
         };
 
-        const ContainerCard = ({ config, state, onUpdate, onLaunch, isGloballyPaused }) => {
+        const ContainerCard = ({ config, state, onUpdate, onLaunch, isGloballyPaused, globalPauseRef }) => {
             const [timeLeft, setTimeLeft] = useState(null);
-            const [countdownCompleted, setCountdownCompleted] = useState(false);
+            const[countdownCompleted, setCountdownCompleted] = useState(false);
             const [launchCount, setLaunchCount] = useState(0);
             const [isHovered, setIsHovered] = useState(false);
             
             const timerRef = useRef(null);
+            const targetTimeRef = useRef(null);
             const lastLaunchTimestampRef = useRef(0);
-            const isPausedRef = useRef(isGloballyPaused);
-
-            // Sincronizza istantaneamente il ref con lo stato globale
-            useEffect(() => {
-                isPausedRef.current = isGloballyPaused;
-            }, [isGloballyPaused]);
 
             useEffect(() => {
                 if (timerRef.current) clearInterval(timerRef.current);
@@ -108,34 +102,41 @@
                     }
                 });
 
+                targetTimeRef.current = nextLaunchTimestamp;
+
                 if (nextLaunchTimestamp !== Infinity) {
                     const updateDisplay = () => {
-                        // Blocco aggressivo istantaneo dentro il timer
-                        if (isPausedRef.current) {
+                        if (globalPauseRef.current) {
                             setTimeLeft(null);
                             return;
                         }
 
                         const now = Date.now();
-                        const remaining = Math.ceil((nextLaunchTimestamp - now) / 1000);
+                        const remaining = Math.ceil((targetTimeRef.current - now) / 1000);
                         
                         if (remaining <= 0) {
+                            if (remaining < -5) {
+                                setTimeLeft(0);
+                                setLaunchCount(prev => prev + 1);
+                                if (timerRef.current) clearInterval(timerRef.current);
+                                return;
+                            }
+
                             setTimeLeft(0);
                             
                             if (now - lastLaunchTimestampRef.current > 100000) {
-                                // Doppio controllo prima del lancio effettivo
-                                if (!isPausedRef.current) {
+                                if (!globalPauseRef.current) {
                                     onLaunch();
                                     lastLaunchTimestampRef.current = now;
                                     
                                     if (isCountdownLaunch) {
                                         setCountdownCompleted(true);
                                     } else {
-                                        // Forza il ricalcolo per il giorno successivo senza rompere il timer
                                         setLaunchCount(prev => prev + 1);
                                     }
                                 }
                             }
+                            if (timerRef.current) clearInterval(timerRef.current);
                         } else {
                             setTimeLeft(remaining);
                         }
@@ -151,7 +152,7 @@
                     if (timerRef.current) clearInterval(timerRef.current);
                 };
 
-            }, [state, countdownCompleted, isGloballyPaused, onLaunch, launchCount]);
+            },[state, countdownCompleted, isGloballyPaused, onLaunch, launchCount, globalPauseRef]);
 
             const handleModeChange = (mode, index, enabled) => {
                 const newState = JSON.parse(JSON.stringify(state));
@@ -162,7 +163,7 @@
             
             const handleTimeKeyDown = (e, index) => {
                 e.preventDefault();
-                const [hours, minutes] = state.schedule[index].time.split(':').map(Number);
+                const[hours, minutes] = state.schedule[index].time.split(':').map(Number);
                 let newHours = hours, newMinutes = minutes;
                 switch(e.key) {
                     case 'w': case 'PageUp': newHours = (hours + 1) % 24; break;
@@ -179,7 +180,6 @@
 
             const handleManualLaunch = () => {
                 onLaunch();
-                // Aggiorna il cooldown anche se lanciato manualmente per evitare doppi avvii
                 lastLaunchTimestampRef.current = Date.now();
             };
 
@@ -219,7 +219,7 @@
         const ManagementModal = ({ initialConfigs, onSave, onClose }) => {
             const [editableConfigs, setEditableConfigs] = useState(initialConfigs);
             const handleUpdate = (index, field, value) => setEditableConfigs(prev => prev.map((c, i) => i === index ? { ...c, [field]: value } : c));
-            const handleAdd = () => setEditableConfigs(prev => [...prev, { id: 'config_' + Date.now(), name: 'New Container', color: '#5c5f66' }]);
+            const handleAdd = () => setEditableConfigs(prev =>[...prev, { id: 'config_' + Date.now(), name: 'New Container', color: '#5c5f66' }]);
             const handleDelete = (index) => setEditableConfigs(prev => prev.filter((_, i) => i !== index));
 
             return (
@@ -260,26 +260,30 @@
             const [containerStates, setContainerStates] = useState({});
             const [globalUrl, setGlobalUrl] = useState('');
             const [autoCloseConfig, setAutoCloseConfig] = useState({ enabled: false, startTime: '22:00', endTime: '06:00' });
-            const [closeCountdown, setCloseCountdown] = useState(null);
+            const[closeCountdown, setCloseCountdown] = useState(null);
             const [initialized, setInitialized] = useState(false);
             const [isModalOpen, setIsModalOpen] = useState(false);
-            const [isGloballyPaused, setIsGloballyPaused] = useState(false);
-            const [importUrl, setImportUrl] = useState('');
+            const[importUrl, setImportUrl] = useState('');
             const [scriptDetected, setScriptDetected] = useState(false);
             const fileInputRef = useRef(null);
             
-            const isGloballyPausedRef = useRef(false);
+            // --- NUOVI STATI PER AUTO-RESUME ---
+            // L'app parte SEMPRE in pausa globale
+            const[isGloballyPaused, setIsGloballyPaused] = useState(true); 
+            const globalPauseRef = useRef(true);
+            const[autoResumeCountdown, setAutoResumeCountdown] = useState(null);
+            const[autoResumeCancelled, setAutoResumeCancelled] = useState(false);
 
             const defaultState = () => ({
                 countdown: { enabled: false, seconds: 5 },
-                schedule: [ { enabled: false, time: '09:00' }, { enabled: false, time: '17:00' }, { enabled: false, time: '21:00' } ]
+                schedule:[ { enabled: false, time: '09:00' }, { enabled: false, time: '17:00' }, { enabled: false, time: '21:00' } ]
             });
 
             useEffect(() => {
                 const savedUrl = localStorage.getItem(URL_KEY) || 'https://www.google.com';
                 const savedConfigsRaw = localStorage.getItem(CONFIG_STORAGE_KEY);
                 const savedAutoClose = JSON.parse(localStorage.getItem(AUTOCLOSE_KEY) || JSON.stringify(autoCloseConfig));
-                let loadedConfigs = savedConfigsRaw ? JSON.parse(savedConfigsRaw) : [ { id: 'personal_1', name: 'Personal', color: '#3b82f6' }, { id: 'work_1', name: 'Work', color: '#f97316' } ];
+                let loadedConfigs = savedConfigsRaw ? JSON.parse(savedConfigsRaw) :[ { id: 'personal_1', name: 'Personal', color: '#3b82f6' }, { id: 'work_1', name: 'Work', color: '#f97316' } ];
                 setConfigs(loadedConfigs);
                 setAutoCloseConfig(savedAutoClose);
                 const savedStates = JSON.parse(localStorage.getItem(STATE_STORAGE_KEY) || '{}');
@@ -288,7 +292,7 @@
                 setContainerStates(initialStates);
                 setGlobalUrl(savedUrl);
                 setInitialized(true);
-            }, []);
+            },[]);
 
             useEffect(() => {
                 if (initialized) {
@@ -297,8 +301,42 @@
                     localStorage.setItem(URL_KEY, globalUrl);
                     localStorage.setItem(AUTOCLOSE_KEY, JSON.stringify(autoCloseConfig));
                 }
-            }, [configs, containerStates, globalUrl, autoCloseConfig, initialized]);
+            },[configs, containerStates, globalUrl, autoCloseConfig, initialized]);
             
+            // --- LOGICA AUTO-RESUME INTELLIGENTE ---
+            useEffect(() => {
+                const handleVisibilityChange = () => {
+                    // Se la pagina diventa visibile, è in pausa, e l'utente non ha annullato manualmente
+                    if (document.visibilityState === 'visible' && isGloballyPaused && !autoResumeCancelled && autoResumeCountdown === null) {
+                        setAutoResumeCountdown(7);
+                    }
+                };
+                
+                document.addEventListener('visibilitychange', handleVisibilityChange);
+                
+                // Controllo immediato all'avvio nel caso la pagina sia già visibile
+                if (document.visibilityState === 'visible' && isGloballyPaused && !autoResumeCancelled && autoResumeCountdown === null) {
+                    setAutoResumeCountdown(7);
+                }
+
+                return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+            },[isGloballyPaused, autoResumeCancelled, autoResumeCountdown]);
+
+            useEffect(() => {
+                if (autoResumeCountdown === null) return;
+                
+                if (autoResumeCountdown > 0) {
+                    const timer = setTimeout(() => setAutoResumeCountdown(prev => prev - 1), 1000);
+                    return () => clearTimeout(timer);
+                } else if (autoResumeCountdown === 0) {
+                    // Il tempo è scaduto: togliamo la pausa automaticamente
+                    globalPauseRef.current = false;
+                    setIsGloballyPaused(false);
+                    setAutoResumeCountdown(null);
+                }
+            }, [autoResumeCountdown]);
+            // ---------------------------------------
+
             useEffect(() => {
                 const checkScript = setInterval(() => {
                     if (document.body.hasAttribute('data-cp-closer-active')) {
@@ -306,7 +344,7 @@
                     }
                 }, 1000);
                 return () => clearInterval(checkScript);
-            }, []);
+            },[]);
 
             useEffect(() => {
                 if (!autoCloseConfig.enabled || isGloballyPaused) {
@@ -324,7 +362,7 @@
                 const interval = setInterval(checkTime, 5000);
                 checkTime();
                 return () => clearInterval(interval);
-            }, [autoCloseConfig, isGloballyPaused, closeCountdown]);
+            },[autoCloseConfig, isGloballyPaused, closeCountdown]);
 
             useEffect(() => {
                 if (closeCountdown > 0) {
@@ -335,18 +373,27 @@
                 }
             }, [closeCountdown]);
 
-            // Funzione di blocco aggressivo per il toggle
+            // Funzione di pausa manuale (annulla l'auto-resume)
             const togglePause = () => {
-                setIsGloballyPaused(prev => {
-                    const newVal = !prev;
-                    isGloballyPausedRef.current = newVal;
-                    return newVal;
-                });
+                if (autoResumeCountdown !== null) {
+                    setAutoResumeCountdown(null);
+                    setAutoResumeCancelled(true);
+                }
+                globalPauseRef.current = !globalPauseRef.current;
+                setIsGloballyPaused(globalPauseRef.current);
+            };
+
+            const handleManageClick = () => {
+                // Aprire le impostazioni annulla l'auto-resume
+                if (autoResumeCountdown !== null) {
+                    setAutoResumeCountdown(null);
+                    setAutoResumeCancelled(true);
+                }
+                setIsModalOpen(true);
             };
 
             const handleLaunch = useCallback((name) => {
-                // Blocco assoluto alla radice
-                if (isGloballyPausedRef.current) return;
+                if (globalPauseRef.current) return;
                 
                 const targetUrl = globalUrl.trim() || 'https://www.google.com';
                 const firefoxUrl = `ext+container:name=${encodeURIComponent(name)}&url=${encodeURIComponent(targetUrl)}`;
@@ -440,15 +487,23 @@
                         
                         <section className="bg-[#1a1c2e] border border-slate-800 rounded-2xl p-4 space-y-4">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="space-y-3">
+                                <div className="space-y-3 flex flex-col items-center justify-center">
                                     <h3 className="text-center text-xs font-bold text-slate-400 uppercase">Controls</h3>
                                     <div className="flex flex-wrap items-center justify-center gap-3">
-                                        <button onClick={() => setIsModalOpen(true)} className="bg-slate-800/80 border border-slate-700 text-slate-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg hover:bg-slate-700/80 hover:border-slate-600 transition-all">Manage</button>
-                                        <button onClick={togglePause} className={`text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg border transition-all ${isGloballyPaused ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20' : 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20'}`}>
+                                        <button onClick={handleManageClick} className="bg-slate-800/80 border border-slate-700 text-slate-300 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg hover:bg-slate-700/80 hover:border-slate-600 transition-all">Manage</button>
+                                        <button onClick={togglePause} className={`text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg border transition-all ${isGloballyPaused ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'}`}>
                                             {isGloballyPaused ? '▶ Resume Timers' : '❚❚ Pause Timers'}
                                         </button>
                                     </div>
-                                    <div className="flex flex-wrap items-center justify-center gap-3 text-xs">
+                                    
+                                    {/* AVVISO AUTO-RESUME */}
+                                    {autoResumeCountdown !== null && (
+                                        <div className="text-amber-400 text-[10px] font-bold uppercase tracking-wider animate-pulse mt-1">
+                                            Auto-resuming in {autoResumeCountdown}s...
+                                        </div>
+                                    )}
+
+                                    <div className="flex flex-wrap items-center justify-center gap-3 text-xs mt-2">
                                         <button onClick={() => fileInputRef.current.click()} className="text-slate-400 hover:text-white transition-colors">Import from File</button>
                                         <input type="file" ref={fileInputRef} onChange={handleFileImport} accept=".json" className="hidden" />
                                         <span className="text-slate-600">|</span>
@@ -488,7 +543,7 @@
 
                         <div className="space-y-3">
                             {configs.map(config => (
-                                <ContainerCard key={config.id} config={config} state={containerStates[config.id]} onLaunch={() => handleLaunch(config.name)} onUpdate={(id, newState) => setContainerStates(prev => ({ ...prev, [id]: newState }))} isGloballyPaused={isGloballyPaused} />
+                                <ContainerCard key={config.id} config={config} state={containerStates[config.id]} onLaunch={() => handleLaunch(config.name)} onUpdate={(id, newState) => setContainerStates(prev => ({ ...prev, [id]: newState }))} isGloballyPaused={isGloballyPaused} globalPauseRef={globalPauseRef} />
                             ))}
                         </div>
 

@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Container Grid Launcher</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body { 
+            background-color: #0f111a; 
+            background-image: radial-gradient(circle at top right, #1a1c2e, #0f111a);
+            color: white;
+            min-height: 100vh;
+        }
+        .container-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+        }
+        .btn-container {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+        }
+        .btn-container:hover {
+            filter: brightness(1.15);
+            transform: translateY(-2px);
+        }
+        .btn-container:active {
+            transform: translateY(1px) scale(0.98);
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const CONFIG_STORAGE_KEY = 'container_launcher_pro_configs_v6';
+        const URL_KEY = 'container_launcher_pro_url_v6';
+
+        const App = () => {
+            const [configs, setConfigs] = useState([]);
+            const [globalUrl, setGlobalUrl] = useState('');
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const fileInputRef = useRef(null);
+
+            useEffect(() => {
+                const savedConfigs = localStorage.getItem(CONFIG_STORAGE_KEY);
+                const savedUrl = localStorage.getItem(URL_KEY) || 'https://www.google.com';
+                
+                if (savedConfigs) setConfigs(JSON.parse(savedConfigs));
+                setGlobalUrl(savedUrl);
+            }, []);
+
+            useEffect(() => {
+                localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(configs));
+                localStorage.setItem(URL_KEY, globalUrl);
+            }, [configs, globalUrl]);
+
+            const handleLaunch = (name) => {
+                const targetUrl = globalUrl.trim() || 'https://www.google.com';
+                const firefoxUrl = `ext+container:name=${encodeURIComponent(name)}&url=${encodeURIComponent(targetUrl)}`;
+                const link = document.createElement('a');
+                link.href = firefoxUrl;
+                link.target = '_blank';
+                link.click();
+            };
+
+            const handleUpdateConfig = (index, field, value) => {
+                const newConfigs = [...configs];
+                newConfigs[index] = { ...newConfigs[index], [field]: value };
+                setConfigs(newConfigs);
+            };
+
+            const handleAdd = () => setConfigs([...configs, { id: 'config_' + Date.now(), name: 'Nuovo', color: '#4f46e5' }]);
+            const handleDelete = (index) => setConfigs(configs.filter((_, i) => i !== index));
+
+            const handleExport = () => {
+                const data = { globalUrl, configs, containerStates: {}, autoCloseConfig: {} };
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'container-backup.json';
+                link.click();
+            };
+
+            const handleImport = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const data = JSON.parse(event.target.result);
+                        if (data.configs) setConfigs(data.configs);
+                        if (data.globalUrl) setGlobalUrl(data.globalUrl);
+                    } catch (err) { alert("Errore nel caricamento del file."); }
+                };
+                reader.readAsText(file);
+            };
+
+            return (
+                <div className="p-6 max-w-5xl mx-auto">
+                    <header className="flex justify-between items-center mb-8 border-b border-white/5 pb-4">
+                        <h1 className="text-2xl font-black tracking-tighter italic">
+                            GRID<span className="text-indigo-500">PRO</span>
+                        </h1>
+                        <button 
+                            onClick={() => setIsModalOpen(true)}
+                            className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold uppercase px-4 py-2 rounded-lg transition-colors"
+                        >
+                            Impostazioni
+                        </button>
+                    </header>
+
+                    <div className="container-grid">
+                        {configs.map((config) => (
+                            <button
+                                key={config.id}
+                                onClick={() => handleLaunch(config.name)}
+                                style={{ backgroundColor: config.color }}
+                                className="btn-container h-32 rounded-2xl shadow-xl flex items-center justify-center text-center p-4 text-sm font-bold uppercase tracking-widest border border-white/10"
+                            >
+                                {config.name}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* MODALE IMPOSTAZIONI */}
+                    {isModalOpen && (
+                        <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-50 p-4">
+                            <div className="bg-[#1a1c2e] border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl">
+                                <div className="p-6 border-b border-slate-800 flex justify-between items-center">
+                                    <h2 className="text-xl font-bold text-white">Configurazione</h2>
+                                    <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+                                </div>
+                                
+                                <div className="p-6 overflow-y-auto space-y-6">
+                                    {/* URL SECTION */}
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-bold text-slate-500 uppercase">URL Destinazione Globale</label>
+                                        <input 
+                                            type="url" 
+                                            value={globalUrl} 
+                                            onChange={(e) => setGlobalUrl(e.target.value)}
+                                            className="w-full bg-black/40 border border-slate-700 rounded-xl px-4 py-3 text-white font-mono text-sm focus:border-indigo-500 outline-none"
+                                        />
+                                    </div>
+
+                                    {/* LISTA CONTAINER */}
+                                    <div className="space-y-3">
+                                        <label className="text-xs font-bold text-slate-500 uppercase italic">Gestione Container</label>
+                                        {configs.map((config, index) => (
+                                            <div key={config.id} className="flex items-center gap-3 bg-white/5 p-3 rounded-xl border border-white/5">
+                                                <input 
+                                                    type="color" 
+                                                    value={config.color} 
+                                                    onChange={(e) => handleUpdateConfig(index, 'color', e.target.value)}
+                                                    className="w-10 h-10 rounded bg-transparent cursor-pointer"
+                                                />
+                                                <input 
+                                                    type="text" 
+                                                    value={config.name} 
+                                                    onChange={(e) => handleUpdateConfig(index, 'name', e.target.value)}
+                                                    className="flex-grow bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none"
+                                                />
+                                                <button onClick={() => handleDelete(index)} className="text-red-400 hover:text-red-300 p-2">
+                                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" /></svg>
+                                                </button>
+                                            </div>
+                                        ))}
+                                        <button onClick={handleAdd} className="w-full py-3 border-2 border-dashed border-slate-700 rounded-xl text-slate-500 hover:text-indigo-400 hover:border-indigo-500/50 transition-all font-bold text-sm">
+                                            + Aggiungi Container
+                                        </button>
+                                    </div>
+
+                                    {/* IMPORT/EXPORT */}
+                                    <div className="flex gap-4 pt-4 border-t border-slate-800">
+                                        <button onClick={handleExport} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold py-3 rounded-xl uppercase tracking-wider">
+                                            Esporta Backup
+                                        </button>
+                                        <button onClick={() => fileInputRef.current.click()} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold py-3 rounded-xl uppercase tracking-wider">
+                                            Importa JSON
+                                        </button>
+                                        <input type="file" ref={fileInputRef} onChange={handleImport} className="hidden" accept=".json" />
+                                    </div>
+                                </div>
+
+                                <div className="p-6 bg-black/20 text-right">
+                                    <button onClick={() => setIsModalOpen(false)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-2 rounded-xl font-bold shadow-lg shadow-indigo-500/20">
+                                        Chiudi
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
